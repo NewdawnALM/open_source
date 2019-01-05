@@ -1,0 +1,8 @@
+
+./configure --prefix=/home/newdawn/ALM/open_source/curl/7.61.1/install --disable-shared --enable-static --without-zlib  --without-ssl
+
+
+./configure --prefix=/home/newdawn/ALM/open_source/curl/7.61.1/install --disable-shared --enable-static --without-zlib --with-ssl=/home/newdawn/ALM/open_source/openssl/1.1.0i/install
+./configure --prefix=/data/home/mytest/open_source/curl/7.61.1/install --disable-shared --enable-static --without-zlib --with-ssl=/data/home/mytest/open_source/openssl/1.1.0i/install
+(用这个应该可以)
+
