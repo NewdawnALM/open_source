@@ -3,14 +3,21 @@
 
 #include <stdio.h>
 #include <errno.h>
-#include <string>
+// #include <string>
 
 #define Log(format, argv...) \
-    printf((std::string("%s|%d|") + std::string(format) + "\n").c_str(), __FILE__, __LINE__, ##argv);
+{ \
+	printf("%s|%d|", __FILE__, __LINE__); \
+    printf(format, ##argv); \
+    putchar('\n'); \
+}
 
-#define PerrorLog(func, format, argv...) { \
+#define PerrorLog(func, format, argv...) \
+{ \
 	perror(func); \
-	printf((std::string("%s|%d|") + std::string(format) + "\n").c_str(), __FILE__, __LINE__, ##argv); \
+	printf("%s|%d|", __FILE__, __LINE__); \
+    printf(format, ##argv); \
+    putchar('\n'); \
 }
 
 #endif  // __COMDEF_H
