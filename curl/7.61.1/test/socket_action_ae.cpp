@@ -16,6 +16,8 @@
 
 #include <string>
 #include <vector>
+#include <map>
+#include <set>
 #include <algorithm>
 #include <iostream>
 #include <assert.h>
@@ -30,13 +32,15 @@ const int64_t g_i64TimeOut = 4000;  //ms
     assert(curl_multi_setopt(curl, option, ##argv) == CURLM_OK);
 
 
-int getTimer(int64_t i64Second, int64_t i64NSec)
+int getTimer(int64_t i64Second, int64_t i64NSec, int iTimerfd = -1)
 {
-    int iTimerfd = timerfd_create(CLOCK_MONOTONIC, 0);
-
     if(iTimerfd < 0)
     {
-        PerrorLog("timerfd_create", "iTimerfd: %d", iTimerfd);
+        iTimerfd = timerfd_create(CLOCK_MONOTONIC, 0);
+    }
+    if(iTimerfd < 0)
+    {
+        Log("timerfd_create error[%d], iTimerfd: %d", errno, iTimerfd);
         return iTimerfd;
     }
     itimerspec itNewTimer;
@@ -48,46 +52,65 @@ int getTimer(int64_t i64Second, int64_t i64NSec)
     int iRes = timerfd_settime(iTimerfd, 0, &itNewTimer, NULL);
     if(iRes < 0)
     {
-        PerrorLog("timerfd_settime", "iRes: %d", iRes);
+        Log("timerfd_settime error[%d], iRes: %d", errno, iRes);
         return iRes;
     }
     return iTimerfd;
 }
 
 
-class CMultiInfo
+class CMultiInfo    //CDispatch
 {
 public:
     CURLM *m_curlm;
     int m_iRunning;
     aeEventLoop *m_evpBase;
     // event_base *m_evpBase;
-    int m_iMultiTimerFd;
     // event *m_evpMultiTimer;
+    // int m_iMultiTimerFd;
+    map<long, set<int> > m_mapTimeoutFds;
 };
 
-class CConnInfo
+class CConnInfo     //CCondHttp
 {
 public:
     string m_strUrl;
     string m_strHost;
-    int64_t m_i64TimeOut;
+    int64_t m_i64TimeOut;   //没有使用
     CURL *m_curl;
+    curl_slist *m_header;
+    // int m_iMultiTimerFd;    //每个http独有一个超时的fd
     string m_strResp;
+
+
+    CConnInfo(): m_curl(NULL), m_header(NULL) {}
+    ~CConnInfo()
+    {
+        if(m_header != NULL)
+        {
+            curl_slist_free_all(m_header);
+            m_header = NULL;
+        }
+        if(m_curl != NULL)
+        {
+            curl_easy_cleanup(m_curl);
+            m_curl = NULL;
+        }
+    }
 };
 
-class CSockInfo
+class CSockInfo     //CCondTcp
 {
 public:
-    curl_socket_t m_fdSock;
+    // curl_socket_t m_fdSock;
     // event *m_evpSock;
-    aeFileEvent *m_evpSock;
+    aeFileEvent *m_evpSock;     //没有使用
     // event_base *m_evpBase;
-    aeEventLoop *m_evpBase;
+    aeEventLoop *m_evpBase;     //没有使用
     string m_strIp;
     int m_iPort;
-    int64_t m_i64TimeOut;
-    int m_iTcpState = 0;   //tcp event专用状态 0-初始化，1-建立连接，2-write完成，3-read完成
+    int64_t m_i64TimeOut;   //没有使用
+    int m_iTcpState;   //tcp event专用状态 0-初始化，1-建立连接，2-write完成，3-read完成
 };
 
 void checkMultiInfo(CMultiInfo *const pMultiInfo)
@@ -113,8 +136,9 @@ void checkMultiInfo(CMultiInfo *const pMultiInfo)
             }
 
             assert(curl_multi_remove_handle(pMultiInfo->m_curlm, pCurlMsg->easy_handle) == CURLM_OK);
-            curl_easy_cleanup(pCurlMsg->easy_handle);
+            // curl_easy_cleanup(pCurlMsg->easy_handle);
             delete pConnInfo;
+            pConnInfo = NULL;
         }
     }
     if(pMultiInfo->m_iRunning <= 0)
@@ -138,11 +162,6 @@ void evSockCallback(struct aeEventLoop *eventLoop, int fd, void *clientData, int
     assert(mcode == CURLM_OK);
 
     checkMultiInfo(pMultiInfo);
-
-    if(pMultiInfo->m_iRunning <= 0)
-    {
-        //...
-    }
 }
 
 // void evTimerCallback(evutil_socket_t fdTimeout, short sEvent, void *arg)
@@ -155,9 +174,14 @@ void evTimerCallback(struct aeEventLoop *eventLoop, int fd, void *clientData, in
     {
         uint64_t ulTimeoutNum = 0;
         ::read(fd, &ulTimeoutNum, sizeof(uint64_t));
-        Log("ulTimeoutNum: %lu", ulTimeoutNum);
+        Log("ulTimeoutNum: %lu, ae max fd: %d", ulTimeoutNum, pMultiInfo->m_evpBase->maxfd);
         aeDeleteFileEvent(pMultiInfo->m_evpBase, fd, AE_READABLE);
         close(fd);
+        Log("close fd[%d], ae max fd: %d", fd, pMultiInfo->m_evpBase->maxfd);
+        if(pMultiInfo->m_evpBase->maxfd < 0)
+        {
+            aeStop(pMultiInfo->m_evpBase);
+        }
         return;
     }
     // Log("curl_multi_socket_action begin, curlm: %p, running: %d", pMultiInfo->m_curlm, pMultiInfo->m_iRunning);
@@ -175,9 +199,10 @@ int multiTimerCallback(CURLM *multi, long timeout_ms, void *userp)
     if(timeout_ms > 0)      //branch 1
     {
         // timeval oTimeval{timeout_ms / 1000, timeout_ms % 1000 * 1000};
-        // assert(evtimer_add(pMultiInfo->m_evpMultiTimer, &oTimeval) == 0);
-        pMultiInfo->m_iMultiTimerFd = getTimer(timeout_ms / 1000, (uint64_t)timeout_ms % 1000 * 1000 * 1000);
-        aeCreateFileEvent(pMultiInfo->m_evpBase, pMultiInfo->m_iMultiTimerFd, AE_READABLE, evTimerCallback, (void*)pMultiInfo);
+        // __assert(evtimer_add(pMultiInfo->m_evpMultiTimer, &oTimeval) == 0);
+        int iTimerfd = getTimer(timeout_ms / 1000, (uint64_t)timeout_ms % 1000 * 1000 * 1000);
+        pMultiInfo->m_mapTimeoutFds[timeout_ms].insert(iTimerfd);
+        aeCreateFileEvent(pMultiInfo->m_evpBase, iTimerfd, AE_READABLE, evTimerCallback, (void*)pMultiInfo);
     }
     else if(timeout_ms == 0)    //branch 2
     {
@@ -187,8 +212,20 @@ int multiTimerCallback(CURLM *multi, long timeout_ms, void *userp)
     else    //branch 3
     {
         //如果这里不删除的话那么branch 1中添加的m_iMultiTimerFd就会被触发
-        // assert(evtimer_del(pMultiInfo->m_evpMultiTimer) == 0);
-        aeDeleteFileEvent(pMultiInfo->m_evpBase, pMultiInfo->m_iMultiTimerFd, AE_READABLE);
+        // __assert(evtimer_del(pMultiInfo->m_evpMultiTimer) == 0);
+        map<long, set<int> >::const_iterator mit = pMultiInfo->m_mapTimeoutFds.find(timeout_ms);
+        if(mit == pMultiInfo->m_mapTimeoutFds.end())
+        {
+            return 0;
+        }
+        if(mit->second.empty())
+        {
+            pMultiInfo->m_mapTimeoutFds.erase(timeout_ms);
+            return 0;
+        }
+        int iTimerfd = *(mit->second.begin());
+        aeDeleteFileEvent(pMultiInfo->m_evpBase, iTimerfd, AE_READABLE);
+        ::close(iTimerfd);   //这里如果不close的话会导致branch 1创建的fd泄露
     }
 }
 
@@ -204,6 +241,7 @@ int multiSocketCallback(CURL *easy, curl_socket_t s, int what, void *userp, void
         // assert(event_del(pSockInfo->m_evpSock) == 0);
         aeDeleteFileEvent(pMultiInfo->m_evpBase, s, AE_READABLE | AE_WRITABLE);
         delete pSockInfo;
+        pSockInfo = NULL;
     }
     else
     {
@@ -217,7 +255,7 @@ int multiSocketCallback(CURL *easy, curl_socket_t s, int what, void *userp, void
         }
         else
         {
-            assert(pSockInfo->m_evpSock != NULL);       // 这里竟然不报错？野指针！
+            // assert(pSockInfo->m_evpSock != NULL);
             // assert(event_del(pSockInfo->m_evpSock) == 0);
             //此处一定要删干净，所有事件都要删干净，之前只删了iMask(上次注册的写事件没有删干净)，而curl_multi_socket_action不会重复
             //处理写事件的，因此导致evSockCallback因为写事件被不断触发而不断回调，造成了满屏幕的输出。
@@ -227,6 +265,7 @@ int multiSocketCallback(CURL *easy, curl_socket_t s, int what, void *userp, void
         // assert(event_add(pSockInfo->m_evpSock, NULL) == 0);
         aeCreateFileEvent(pMultiInfo->m_evpBase, s, iMask, evSockCallback, (void*)pMultiInfo);
     }
+    return 0;
 }
 
 size_t easyWriteCallback(char *buffer, size_t size, size_t nitems, void *outstream)
@@ -253,10 +292,10 @@ int addHttpCondi(CURLM *curlm, const string &strUrl, const string &strHost = g_s
     {
         Curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, i64TimeOutMs);
     }
-    curl_slist *header = NULL;
-    header = curl_slist_append(header, string("Host: " + strHost).c_str());
-    assert(header != NULL);
-    Curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
+    pConnInfo->m_header = NULL;
+    pConnInfo->m_header = curl_slist_append(pConnInfo->m_header, string("Host: " + strHost).c_str());
+    assert(pConnInfo->m_header != NULL);
+    Curl_easy_setopt(curl, CURLOPT_HTTPHEADER, pConnInfo->m_header);
     Curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easyWriteCallback);
     Curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)pConnInfo);
     Curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*)pConnInfo);
@@ -418,6 +457,7 @@ int addNoIOCondi(aeEventLoop *evpBase)
 
 int main(int argc, char const *argv[])
 {
+loop:
     CMultiInfo oMultiInfo;
     oMultiInfo.m_curlm = curl_multi_init();
     Log("multiTimerCallback: %p", multiTimerCallback);
@@ -435,7 +475,7 @@ int main(int argc, char const *argv[])
     Log("m_evpBase init finish");
 
     assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "100") == 0);
-    // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
+    assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "80") == 0);
     // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300") == 0);
     // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
     // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
@@ -447,10 +487,25 @@ int main(int argc, char const *argv[])
     // event_base_dispatch(oMultiInfo.m_evpBase);
     aeMain(oMultiInfo.m_evpBase);
     // aeProcessEvents(oMultiInfo.m_evpBase, AE_FILE_EVENTS | AE_CALL_AFTER_SLEEP);
+    aeDeleteEventLoop(oMultiInfo.m_evpBase);
     Log("aeMain finish");
 
-    //clean up...
-    //
+    curl_multi_cleanup(oMultiInfo.m_curlm);
+    oMultiInfo.m_curlm = NULL;
+    
+    for(map<long, set<int> >::const_iterator mit = oMultiInfo.m_mapTimeoutFds.begin(); 
+        mit != oMultiInfo.m_mapTimeoutFds.end(); ++mit)
+    {
+        for(set<int>::const_iterator sit = mit->second.begin(); sit != mit->second.end(); ++sit)
+        {
+            ::close(*sit);
+        }
+    }
 
+    int x;
+    if(cin >> x)
+    {
+        if(x > 0)   goto loop;
+    }
     return 0;
 }

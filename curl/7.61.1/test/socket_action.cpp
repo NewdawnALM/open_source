@@ -43,6 +43,7 @@ public:
     // string m_strParam;
     int64_t m_i64TimeOut;
     CURL *m_curl;
+    curl_slist *m_header;
     string m_strResp;
 };
 
@@ -187,10 +188,10 @@ int addHttpCondi(CURLM *curlm, const string &strUrl, const string &strHost = g_s
     {
         Curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, i64TimeOutMs);
     }
-    curl_slist *header = NULL;
-    header = curl_slist_append(header, string("Host: " + strHost).c_str());
-    assert(header != NULL);
-    Curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
+    pConnInfo->m_header = NULL;
+    pConnInfo->m_header = curl_slist_append(pConnInfo->m_header, string("Host: " + strHost).c_str());
+    assert(pConnInfo->m_header != NULL);
+    Curl_easy_setopt(curl, CURLOPT_HTTPHEADER, pConnInfo->m_header);
     Curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easyWriteCallback);
     Curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)pConnInfo);
     Curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*)pConnInfo);
@@ -325,40 +326,48 @@ int addNoIOCondi(event_base *evpBase)
 
 int main(int argc, char const *argv[])
 {
-    CMultiInfo oMultiInfo;
-    oMultiInfo.m_curlm = curl_multi_init();
-    Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_TIMERFUNCTION, multiTimerCallback);
-    Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_TIMERDATA, &oMultiInfo);
-    Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_SOCKETFUNCTION, multiSocketCallback);
-    Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_SOCKETDATA, &oMultiInfo);
-    Log("m_curlm init finish");
+    int x;
+    while(cin >> x)
+    {
+        if(x < 0)   break;
 
-    oMultiInfo.m_evpBase = event_base_new();
-    oMultiInfo.m_evpMultiTimer = new event;
-    evtimer_assign(oMultiInfo.m_evpMultiTimer, oMultiInfo.m_evpBase, evTimerCallback, (void*)&oMultiInfo);
-    Log("m_evpBase init finish");
+        CMultiInfo oMultiInfo;
+        oMultiInfo.m_curlm = curl_multi_init();
+        Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_TIMERFUNCTION, multiTimerCallback);
+        Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_TIMERDATA, &oMultiInfo);
+        Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_SOCKETFUNCTION, multiSocketCallback);
+        Curl_multi_setopt(oMultiInfo.m_curlm, CURLMOPT_SOCKETDATA, &oMultiInfo);
+        Log("m_curlm init finish");
 
-    assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "100") == 0);
-    // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
-    // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300") == 0);
-    // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
-    // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
-    // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
-    // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
-    // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
-    // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
-    // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        oMultiInfo.m_evpBase = event_base_new();
+        oMultiInfo.m_evpMultiTimer = new event;
+        evtimer_assign(oMultiInfo.m_evpMultiTimer, oMultiInfo.m_evpBase, evTimerCallback, (void*)&oMultiInfo);
+        Log("m_evpBase init finish");
 
-    event_base_dispatch(oMultiInfo.m_evpBase);
-    Log("event_base_dispatch finish");
+        assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "100") == 0);
+        assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "80") == 0);
+        // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300") == 0);
+        // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
+        // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
+        // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
+        // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
+        // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
+        // assert(addTcpCondi(oMultiInfo.m_evpBase, "127.0.0.1", 9006) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
+        // assert(addNoIOCondi(oMultiInfo.m_evpBase) == 0);
 
-    //clean up...
-    //
+        event_base_dispatch(oMultiInfo.m_evpBase);
+        Log("event_base_dispatch finish");
+
+        //clean up...
+        event_del(oMultiInfo.m_evpMultiTimer);
+        event_base_free(oMultiInfo.m_evpBase);
+        curl_multi_cleanup(oMultiInfo.m_curlm);
+    }
 
     return 0;
 }

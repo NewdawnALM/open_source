@@ -32,7 +32,7 @@ INCLUDES = -I$(COMMON_INCLUDE) -I$(CURL_INCLUDE) -I$(LIBEVENT_INCLUDE) -I$(REDIS
 # LIB_DIR = -L$(CURL_LIBDIR) -L$(OPENSSL_LIBDIR) -L$(LIBEVENT_LIBDIR) -L$(REDIS_LIBDIR)
 LIB_DIR = -L$(CURL_LIBDIR) -L$(LIBEVENT_LIBDIR) -L$(REDIS_LIBDIR)
 
-LIBS = -lcurl -lssl -lcrypto -ldl -levent -lae -pthread #-lz
+LIBS = -lcurl -lssl -lcrypto -ldl -levent -lae -pthread -lz
 
 TARGET = $(patsubst %.cpp, %, $(wildcard *.cpp))
 
