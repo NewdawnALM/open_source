@@ -1,0 +1,1 @@
+./configure --prefix=/home/newdawn/ALM/open_source/trunk/libevent/2.1.8/install && make && make install
