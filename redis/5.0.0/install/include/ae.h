@@ -64,8 +64,8 @@ struct aeEventLoop;
 
 /* Types and data structures */
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
-typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
-typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
+typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);  //超时事件回调函数，返回AE_NOMORE会移除该定时器，返回其它值则以当前时间加上返回值设置新的定时器
+typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);  //定时器删除回调函数(只有在processTimeEvents(aeMain)中遍历定时器时才会触发，aeDeleteTimeEvent不会触发)
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
@@ -117,10 +117,10 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc);
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
+long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,    //距离当前时间milliseconds毫秒后触发
+        aeTimeProc *proc, void *clientData,     //超时时间回调函数和对应的参数
+        aeEventFinalizerProc *finalizerProc);   //定时器删除回调函数
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);    //删除定时器(只设置删除标记，在遍历定时事件时才作真正的删除操作)
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);

@@ -46,9 +46,12 @@ int getTcpClient(const char *chServerIp, int iPort)
     return sockClient;
 }
 
-int getTimer(int64_t i64Second, int64_t i64NSec)
+int getTimer(int64_t i64Second, int64_t i64NSec, int iTimerfd = -1)
 {
-    int iTimerfd = timerfd_create(CLOCK_MONOTONIC, 0);
+    if(iTimerfd < 0)
+    {
+        iTimerfd = timerfd_create(CLOCK_MONOTONIC, 0);
+    }
     if(iTimerfd < 0)
     {
         PerrorLog("timerfd_create", "iTimerfd: %d", iTimerfd);
@@ -182,10 +185,55 @@ void evTimerCallback(struct aeEventLoop *eventLoop, int fd, void *clientData, in
     }
 }
 
+void beforeSleepProc(struct aeEventLoop *eventLoop)
+{
+    Log("beforeSleepProc, eventLoop->timeEventHead %s", eventLoop->timeEventHead ? " != NULL" : " == NULL");
+    if(eventLoop->timeEventHead == NULL)
+    {
+        aeStop(eventLoop);
+    }
+}
+
+int evTimerCb(struct aeEventLoop *eventLoop, long long id, void *clientData)
+{
+    Log("evTimerCb begin, eventLoop: %p, id: %d, clientData: %p", eventLoop, id, clientData);
+
+    timeval tvNow;
+    gettimeofday(&tvNow, NULL);
+    timeval *ptvLast = (timeval*)clientData;
+    long long tDiff = (tvNow.tv_sec - ptvLast->tv_sec) * 1000000 + (tvNow.tv_usec - ptvLast->tv_usec);
+    Log("now: %ld s, %ld us, last_time: %ld s, %ld us, diff: %ld us", 
+        tvNow.tv_sec, tvNow.tv_usec, ptvLast->tv_sec, ptvLast->tv_usec, tDiff);
+
+    // if(eventLoop->timeEventHead == NULL)    //这里判断没有用
+    // {
+    //     aeStop(eventLoop);
+    // }
+    return AE_NOMORE;
+}
+
 int main()
 {
+    // int iFd = getTimer(179 / 1000, (uint64_t)179 * 1000 * 1000);
+    // Log("iFd: %d", iFd);
+    // ::close(iFd);
+    // ::close(iFd);   //多次close无影响
+    // return;
+
     aeEventLoop *pEventBase = aeCreateEventLoop(g_iEventSize);
+    aeSetBeforeSleepProc(pEventBase, beforeSleepProc);
     Log("pEventBase: %p", pEventBase);
+
+    timeval tvNow;
+    gettimeofday(&tvNow, NULL);
+
+    long long lTimerId = 0;
+    lTimerId = aeCreateTimeEvent(pEventBase, 100, evTimerCb, (void*)&tvNow, NULL);
+    Log("create timer %ld", lTimerId);
+    lTimerId = aeCreateTimeEvent(pEventBase, 80, evTimerCb, (void*)&tvNow, NULL);
+    Log("create timer %ld", lTimerId);
+    lTimerId = aeCreateTimeEvent(pEventBase, 120, evTimerCb, (void*)&tvNow, NULL);
+    Log("create timer %ld", lTimerId);
 
     // int iSockClient = getTcpClient("127.0.0.1", 9006);
     // aeCreateFileEvent(pEventBase, iSockClient, AE_READABLE, (aeFileProc*)evSockCallback, (void*)1);
@@ -198,15 +246,13 @@ int main()
     // iRes = aeCreateFileEvent(pEventBase, STDIN_FILENO, AE_READABLE | AE_WRITABLE, (aeFileProc*)evStdinReadCallback, (void*)&iSockClient);
     // aeCreateFileEvent(pEventBase, STDIN_FILENO, AE_READABLE | AE_WRITABLE | AE_BARRIER, (aeFileProc*)evStdinReadCallback, (void*)&iSockClient);
 
-    timeval tvNow;
-    gettimeofday(&tvNow, NULL);
-
+    int iTimerfd = -1;
     int iMaxTimerFd = -1;
 
-    for(int i = 0; i < 1020; ++i)
+    for(int i = 0; i < 0; ++i)
     {
         // int iTimerfd = getTimer(0, 400 * 1000 * 1000);
-        int iTimerfd = getTimer(199 / 1000, (uint64_t)199 % 1000 * 1000 * 1000);
+        iTimerfd = getTimer((190 + i) / 1000, (uint64_t)199 % 1000 * 1000 * 1000, iTimerfd);
         iMaxTimerFd = std::max(iMaxTimerFd, iTimerfd);
         aeCreateFileEvent(pEventBase, iTimerfd, AE_READABLE, (aeFileProc*)evTimerCallback, (void*)&tvNow);  //timer fd没有写事件
     }
@@ -223,6 +269,9 @@ int main()
     // aeProcessEvents(pEventBase, AE_FILE_EVENTS | AE_CALL_AFTER_SLEEP);   //只调用一次epoll_wait
     
     Log("iMaxTimerFd: %d", iMaxTimerFd);
+
+    int x;
+    cin >> x;
 
     return 0;
 }
