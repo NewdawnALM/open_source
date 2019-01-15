@@ -187,9 +187,24 @@ void evTimerCallback(struct aeEventLoop *eventLoop, int fd, void *clientData, in
 
 void beforeSleepProc(struct aeEventLoop *eventLoop)
 {
-    Log("beforeSleepProc, eventLoop->timeEventHead %s", eventLoop->timeEventHead ? " != NULL" : " == NULL");
+    Log("beforeSleepProc begin, maxfd: %d, timeEventNextId: %d", eventLoop->maxfd, eventLoop->timeEventNextId);
+    if(eventLoop->maxfd < 0)
+    {
+        if(eventLoop->timeEventHead == NULL ||
+            (eventLoop->timeEventHead->id == 0/* && eventLoop->timeEventHead->next == NULL*/))
+        {
+            Log("here stop");
+            aeStop(eventLoop);
+        }
+    }
+}
+
+void evFinalizerProc(struct aeEventLoop *eventLoop, void *clientData)
+{
+    Log("evFinalizerProc begin, eventLoop: %p, clientData: %p", eventLoop, clientData);
     if(eventLoop->timeEventHead == NULL)
     {
+        Log("eventLoop->timeEventHead == NULL");
         aeStop(eventLoop);
     }
 }
@@ -205,10 +220,11 @@ int evTimerCb(struct aeEventLoop *eventLoop, long long id, void *clientData)
     Log("now: %ld s, %ld us, last_time: %ld s, %ld us, diff: %ld us", 
         tvNow.tv_sec, tvNow.tv_usec, ptvLast->tv_sec, ptvLast->tv_usec, tDiff);
 
-    // if(eventLoop->timeEventHead == NULL)    //这里判断没有用
-    // {
-    //     aeStop(eventLoop);
-    // }
+    if(id == 0)
+    {
+        Log("event loop timeout reach, exit all");
+        aeStop(eventLoop);
+    }
     return AE_NOMORE;
 }
 
@@ -219,21 +235,21 @@ int main()
     // ::close(iFd);
     // ::close(iFd);   //多次close无影响
     // return;
-
-    aeEventLoop *pEventBase = aeCreateEventLoop(g_iEventSize);
-    aeSetBeforeSleepProc(pEventBase, beforeSleepProc);
-    Log("pEventBase: %p", pEventBase);
-
+    
     timeval tvNow;
     gettimeofday(&tvNow, NULL);
 
+    aeEventLoop *pEventBase = aeCreateEventLoop(g_iEventSize);
+    aeCreateTimeEvent(pEventBase, 1200, evTimerCb, (void*)&tvNow, NULL);
+    aeSetBeforeSleepProc(pEventBase, beforeSleepProc);
+
     long long lTimerId = 0;
-    lTimerId = aeCreateTimeEvent(pEventBase, 100, evTimerCb, (void*)&tvNow, NULL);
+    lTimerId = aeCreateTimeEvent(pEventBase, 1202, evTimerCb, (void*)&tvNow, NULL);
     Log("create timer %ld", lTimerId);
-    lTimerId = aeCreateTimeEvent(pEventBase, 80, evTimerCb, (void*)&tvNow, NULL);
-    Log("create timer %ld", lTimerId);
-    lTimerId = aeCreateTimeEvent(pEventBase, 120, evTimerCb, (void*)&tvNow, NULL);
-    Log("create timer %ld", lTimerId);
+    // lTimerId = aeCreateTimeEvent(pEventBase, 80, evTimerCb, (void*)&tvNow, evFinalizerProc);
+    // Log("create timer %ld", lTimerId);
+    // lTimerId = aeCreateTimeEvent(pEventBase, 120, evTimerCb, (void*)&tvNow, evFinalizerProc);
+    // Log("create timer %ld", lTimerId);
 
     // int iSockClient = getTcpClient("127.0.0.1", 9006);
     // aeCreateFileEvent(pEventBase, iSockClient, AE_READABLE, (aeFileProc*)evSockCallback, (void*)1);
@@ -267,11 +283,9 @@ int main()
 
     aeMain(pEventBase);     //循环调用aeProcessEvents(epoll_wait)
     // aeProcessEvents(pEventBase, AE_FILE_EVENTS | AE_CALL_AFTER_SLEEP);   //只调用一次epoll_wait
-    
-    Log("iMaxTimerFd: %d", iMaxTimerFd);
 
     int x;
-    cin >> x;
+    // cin >> x;
 
     return 0;
 }

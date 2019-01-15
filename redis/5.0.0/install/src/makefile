@@ -4,7 +4,7 @@ OPT = -O3 -std=c++11
 
 AR = ar
 
-INCLUDES = -I../include
+INCLUDES = -I../include -I../../test/common
 
 TARGET = ../lib/libae.a
 

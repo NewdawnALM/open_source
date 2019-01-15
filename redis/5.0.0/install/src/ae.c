@@ -327,6 +327,19 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     while(te) {
         if (te->id == id) {
             te->id = AE_DELETED_EVENT_ID;
+            //添加上真正的删除操作
+            aeTimeEvent *next = te->next;
+            if (te->prev)
+                te->prev->next = te->next;
+            else
+                eventLoop->timeEventHead = te->next;
+            if (te->next)
+                te->next->prev = te->prev;
+            // if (te->finalizerProc)
+            //     te->finalizerProc(eventLoop, te->clientData);
+            zfree(te);
+            // te = next;
+
             return AE_OK;
         }
         te = te->next;
@@ -428,6 +441,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
                 te->id = AE_DELETED_EVENT_ID;
+                continue;   //在这里也进行链表的删除操作
             }
         }
         te = te->next;
