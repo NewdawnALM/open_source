@@ -34,6 +34,8 @@
 #define __AE_H__
 
 #include <time.h>
+#include <queue>    //使用std的优先队列实现最小堆
+#include <set>
 
 #define AE_OK 0
 #define AE_ERR -1
@@ -84,8 +86,11 @@ typedef struct aeTimeEvent {
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
-    struct aeTimeEvent *prev;
-    struct aeTimeEvent *next;
+    // struct aeTimeEvent *prev;
+    // struct aeTimeEvent *next;
+    bool operator < (const aeTimeEvent &rhs) const {
+        return when_sec == rhs.when_sec ? when_ms > rhs.when_ms : when_sec > rhs.when_sec;
+    }
 } aeTimeEvent;
 
 /* A fired event */
@@ -98,11 +103,13 @@ typedef struct aeFiredEvent {
 typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
-    long long timeEventNextId;
-    time_t lastTime;     /* Used to detect system clock skew */
     aeFileEvent *events; /* Registered events */
     aeFiredEvent *fired; /* Fired events */
-    aeTimeEvent *timeEventHead;
+    time_t lastTime;     /* Used to detect system clock skew */
+    long long timeEventNextId;
+    // aeTimeEvent *timeEventHead;
+    std::priority_queue<aeTimeEvent> *timeMinHead;
+    std::set<long long> *setDelTimeId;
     int stop;
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;

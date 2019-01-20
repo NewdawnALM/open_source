@@ -40,7 +40,7 @@
 #include <time.h>
 #include <errno.h>
 
-#include "ae.h"
+#include "ae2.h"
 // #include "zmalloc.h"
 // #include "config.h"
 
@@ -161,10 +161,14 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if ((eventLoop = (aeEventLoop *)malloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = (aeFileEvent *)malloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = (aeFiredEvent *)malloc(sizeof(aeFiredEvent)*setsize);
-    if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
+    eventLoop->timeMinHead = new std::priority_queue<aeTimeEvent>();
+    eventLoop->setDelTimeId = new std::set<long long>();
+
+    if (eventLoop->events == NULL || eventLoop->fired == NULL
+        || eventLoop->timeMinHead == NULL || eventLoop->setDelTimeId == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
-    eventLoop->timeEventHead = NULL;
+    // eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
@@ -179,6 +183,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
 err:
     if (eventLoop) {
+        delete eventLoop->timeMinHead;
+        delete eventLoop->setDelTimeId;
         free(eventLoop->events);
         free(eventLoop->fired);
         free(eventLoop);
@@ -205,6 +211,10 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     if (eventLoop->maxfd >= setsize) return AE_ERR;
     if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
 
+    delete eventLoop->timeMinHead;
+    eventLoop->timeMinHead = new std::priority_queue<aeTimeEvent>();
+    delete eventLoop->setDelTimeId;
+    eventLoop->setDelTimeId = new std::set<long long>();
     eventLoop->events = (aeFileEvent *)realloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
     eventLoop->fired = (aeFiredEvent *)realloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
     eventLoop->setsize = setsize;
@@ -218,6 +228,8 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
+    delete eventLoop->timeMinHead;
+    delete eventLoop->setDelTimeId;
     free(eventLoop->events);
     free(eventLoop->fired);
     free(eventLoop);
@@ -304,47 +316,46 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeEventFinalizerProc *finalizerProc)
 {
     long long id = eventLoop->timeEventNextId++;
-    aeTimeEvent *te;
+    aeTimeEvent te;
 
-    te = (aeTimeEvent *)malloc(sizeof(*te));
-    if (te == NULL) return AE_ERR;
-    te->id = id;
-    aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);    //设置milliseconds毫秒后的时间点到te中
-    te->timeProc = proc;
-    te->finalizerProc = finalizerProc;
-    te->clientData = clientData;
-    te->prev = NULL;
-    te->next = eventLoop->timeEventHead;    //头插法
-    if (te->next)
-        te->next->prev = te;
-    eventLoop->timeEventHead = te;
+    // te = (aeTimeEvent *)malloc(sizeof(*te));
+    // if (te == NULL) return AE_ERR;
+    te.id = id;
+    //设置milliseconds毫秒后的时间点到te中
+    aeAddMillisecondsToNow(milliseconds, &te.when_sec, &te.when_ms);
+    te.timeProc = proc;
+    te.finalizerProc = finalizerProc;
+    te.clientData = clientData;
+    eventLoop->timeMinHead->push(te);
     return id;
 }
 
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
-    aeTimeEvent *te = eventLoop->timeEventHead;
-    while(te) {
-        if (te->id == id) {
-            te->id = AE_DELETED_EVENT_ID;
-            //添加上真正的删除操作
-            aeTimeEvent *next = te->next;
-            if (te->prev)
-                te->prev->next = te->next;
-            else
-                eventLoop->timeEventHead = te->next;
-            if (te->next)
-                te->next->prev = te->prev;
-            // if (te->finalizerProc)
-            //     te->finalizerProc(eventLoop, te->clientData);
-            free(te);
-            // te = next;
+    eventLoop->setDelTimeId->insert(id);
+    return AE_OK;
+    // aeTimeEvent *te = eventLoop->timeEventHead;
+    // while(te) {
+    //     if (te->id == id) {
+    //         te->id = AE_DELETED_EVENT_ID;
+    //         //添加上真正的删除操作
+    //         aeTimeEvent *next = te->next;
+    //         if (te->prev)
+    //             te->prev->next = te->next;
+    //         else
+    //             eventLoop->timeEventHead = te->next;
+    //         if (te->next)
+    //             te->next->prev = te->prev;
+    //         // if (te->finalizerProc)
+    //         //     te->finalizerProc(eventLoop, te->clientData);
+    //         free(te);
+    //         // te = next;
 
-            return AE_OK;
-        }
-        te = te->next;
-    }
-    return AE_ERR; /* NO event with the specified ID found */
+    //         return AE_OK;
+    //     }
+    //     te = te->next;
+    // }
+    // return AE_ERR; /* NO event with the specified ID found */
 }
 
 /* Search the first timer to fire.
@@ -358,93 +369,61 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
-static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
+static const aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
-    aeTimeEvent *te = eventLoop->timeEventHead;
-    aeTimeEvent *nearest = NULL;
+    if(eventLoop->timeMinHead->empty())
+        return NULL;
+    return &(eventLoop->timeMinHead->top());
 
-    while(te) {
-        if (!nearest || te->when_sec < nearest->when_sec ||
-                (te->when_sec == nearest->when_sec &&
-                 te->when_ms < nearest->when_ms))
-            nearest = te;
-        te = te->next;
-    }
-    return nearest;
+    // aeTimeEvent *te = eventLoop->timeEventHead;
+    // aeTimeEvent *nearest = NULL;
+
+    // while(te) {
+    //     if (!nearest || te->when_sec < nearest->when_sec ||
+    //             (te->when_sec == nearest->when_sec &&
+    //              te->when_ms < nearest->when_ms))
+    //         nearest = te;
+    //     te = te->next;
+    // }
+    // return nearest;
 }
 
 /* Process time events */
-static int processTimeEvents(aeEventLoop *eventLoop) {
+static int processTimeEvents(aeEventLoop *eventLoop)
+{
     int processed = 0;
-    aeTimeEvent *te;
-    long long maxId;
-    time_t now = time(NULL);
+    // long long maxId = eventLoop->timeEventNextId - 1;
+    long now_sec, now_ms;
+    aeGetTime(&now_sec, &now_ms);
 
-    /* If the system clock is moved to the future, and then set back to the
-     * right value, time events may be delayed in a random way. Often this
-     * means that scheduled operations will not be performed soon enough.
-     *
-     * Here we try to detect system clock skews, and force all the time
-     * events to be processed ASAP when this happens: the idea is that
-     * processing events earlier is less dangerous than delaying them
-     * indefinitely, and practice suggests it is. */
-    if (now < eventLoop->lastTime) {
-        te = eventLoop->timeEventHead;
-        while(te) {
-            te->when_sec = 0;
-            te = te->next;
-        }
-    }
-    eventLoop->lastTime = now;
+    while(!eventLoop->timeMinHead->empty())
+    {
+        aeTimeEvent te = eventLoop->timeMinHead->top();
 
-    te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
-    while(te) {
-        long now_sec, now_ms;
-        long long id;
-
-        /* Remove events scheduled for deletion. */
-        if (te->id == AE_DELETED_EVENT_ID) {
-            aeTimeEvent *next = te->next;
-            if (te->prev)
-                te->prev->next = te->next;
-            else
-                eventLoop->timeEventHead = te->next;
-            if (te->next)
-                te->next->prev = te->prev;
-            if (te->finalizerProc)
-                te->finalizerProc(eventLoop, te->clientData);
-            free(te);
-            te = next;
-            continue;
-        }
-
-        /* Make sure we don't process time events created by time events in
-         * this iteration. Note that this check is currently useless: we always
-         * add new timers on the head, however if we change the implementation
-         * detail, this check may be useful again: we keep it here for future
-         * defense. */
-        if (te->id > maxId) {
-            te = te->next;
-            continue;
-        }
-        aeGetTime(&now_sec, &now_ms);
-        if (now_sec > te->when_sec ||
-            (now_sec == te->when_sec && now_ms >= te->when_ms))
+        if (eventLoop->setDelTimeId->find(te.id) != eventLoop->setDelTimeId->end())
         {
-            int retval;
-
-            id = te->id;
-            retval = te->timeProc(eventLoop, id, te->clientData);
-            processed++;
-            if (retval != AE_NOMORE) {
-                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
-            } else {
-                te->id = AE_DELETED_EVENT_ID;
-                continue;   //在这里也进行链表的删除操作
+            if (te.finalizerProc)
+            {
+                te.finalizerProc(eventLoop, te.clientData);
             }
+            eventLoop->timeMinHead->pop();   //已标记删除的超时事件从堆中弹出
+            continue;
         }
-        te = te->next;
+        //已到期的事件，调用回调函数处理
+        if(te.when_sec < now_sec || (te.when_sec == now_sec && te.when_ms <= now_ms))
+        {
+            int retval = te.timeProc(eventLoop, te.id, te.clientData);
+            ++processed;
+            eventLoop->timeMinHead->pop();
+
+            if (retval != AE_NOMORE)
+            {
+                aeAddMillisecondsToNow(retval, &te.when_sec, &te.when_ms);
+                eventLoop->timeMinHead->push(te);
+            }
+            continue;
+        }
+        break;   //未到期的事件，直接退出循环(因为后面的都是未到期的)
     }
     return processed;
 }
@@ -477,7 +456,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
-        aeTimeEvent *shortest = NULL;
+        const aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
         //下面开始获取epoll_wait中的合适/最短的超时时间
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
