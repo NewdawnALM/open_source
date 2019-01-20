@@ -40,7 +40,7 @@
 #include <time.h>
 #include <errno.h>
 
-#include "ae2.h"
+#include "ae3.h"
 // #include "zmalloc.h"
 // #include "config.h"
 
@@ -161,11 +161,10 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if ((eventLoop = (aeEventLoop *)malloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = (aeFileEvent *)malloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = (aeFiredEvent *)malloc(sizeof(aeFiredEvent)*setsize);
-    eventLoop->timeMinHead = new std::priority_queue<aeTimeEvent>();
-    eventLoop->setDelTimeId = new std::set<long long>();
+    eventLoop->timeEventMap = new std::map<long, std::set<aeTimeEvent> >();
 
     if (eventLoop->events == NULL || eventLoop->fired == NULL
-        || eventLoop->timeMinHead == NULL || eventLoop->setDelTimeId == NULL) goto err;
+        || eventLoop->timeEventMap == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     // eventLoop->timeEventHead = NULL;
@@ -183,8 +182,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
 err:
     if (eventLoop) {
-        delete eventLoop->timeMinHead;
-        delete eventLoop->setDelTimeId;
+        delete eventLoop->timeEventMap;
         free(eventLoop->events);
         free(eventLoop->fired);
         free(eventLoop);
@@ -211,10 +209,8 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     if (eventLoop->maxfd >= setsize) return AE_ERR;
     if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
 
-    delete eventLoop->timeMinHead;
-    eventLoop->timeMinHead = new std::priority_queue<aeTimeEvent>();
-    delete eventLoop->setDelTimeId;
-    eventLoop->setDelTimeId = new std::set<long long>();
+    delete eventLoop->timeEventMap;
+    eventLoop->timeEventMap = new std::map<long, std::set<aeTimeEvent> >();
     eventLoop->events = (aeFileEvent *)realloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
     eventLoop->fired = (aeFiredEvent *)realloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
     eventLoop->setsize = setsize;
@@ -228,8 +224,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
-    delete eventLoop->timeMinHead;
-    delete eventLoop->setDelTimeId;
+    delete eventLoop->timeEventMap;
     free(eventLoop->events);
     free(eventLoop->fired);
     free(eventLoop);
@@ -326,13 +321,25 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te.timeProc = proc;
     te.finalizerProc = finalizerProc;
     te.clientData = clientData;
-    eventLoop->timeMinHead->push(te);
+    (*eventLoop->timeEventMap)[te.when_sec * 1000 + te.when_ms].insert(te);
     return id;
 }
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
+// int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
+// {
+//     eventLoop->setDelTimeId->insert(id);
+//     return AE_OK;
+// }
+
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, const aeTimeEvent *te)
 {
-    eventLoop->setDelTimeId->insert(id);
+    long timeKey = te->when_sec * 1000 + te->when_ms;
+    std::set<aeTimeEvent> &setTimeEvent = (*eventLoop->timeEventMap)[timeKey];
+    setTimeEvent.erase(*te);
+    if(setTimeEvent.size() <= 0)
+    {
+        eventLoop->timeEventMap->erase(timeKey);
+    }
     return AE_OK;
 }
 
@@ -349,21 +356,12 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  */
 static const aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
-    if(eventLoop->timeMinHead->empty())
+    if(eventLoop->timeEventMap->size() <= 0)
         return NULL;
-    return &(eventLoop->timeMinHead->top());
-
-    // aeTimeEvent *te = eventLoop->timeEventHead;
-    // aeTimeEvent *nearest = NULL;
-
-    // while(te) {
-    //     if (!nearest || te->when_sec < nearest->when_sec ||
-    //             (te->when_sec == nearest->when_sec &&
-    //              te->when_ms < nearest->when_ms))
-    //         nearest = te;
-    //     te = te->next;
-    // }
-    // return nearest;
+    std::map<long, std::set<aeTimeEvent> >::const_iterator mit = eventLoop->timeEventMap->begin();
+    if(mit->second.size() <= 0)
+        return NULL;
+    return &(*(mit->second.begin()));
 }
 
 /* Process time events */
@@ -373,35 +371,44 @@ static int processTimeEvents(aeEventLoop *eventLoop)
     // long long maxId = eventLoop->timeEventNextId - 1;
     long now_sec, now_ms;
     aeGetTime(&now_sec, &now_ms);
+    long lNow = now_sec * 1000 + now_ms;
 
-    while(!eventLoop->timeMinHead->empty())
+    std::map<long, std::set<aeTimeEvent> >::const_iterator mit;
+    std::set<aeTimeEvent>::const_iterator sit;
+    std::vector<long> vecDelTimeMs;
+    std::vector<aeTimeEvent> vecAddTimeEvent;
+
+    for(mit = eventLoop->timeEventMap->begin(); mit != eventLoop->timeEventMap->end(); ++mit)
     {
-        aeTimeEvent te = eventLoop->timeMinHead->top();
-
-        if (eventLoop->setDelTimeId->find(te.id) != eventLoop->setDelTimeId->end())
+        if(mit->first <= lNow)
         {
-            if (te.finalizerProc)
+            for(sit = mit->second.begin(); sit != mit->second.end(); ++sit)
             {
-                te.finalizerProc(eventLoop, te.clientData);
+                const aeTimeEvent &te = *sit;
+                int retval = te.timeProc(eventLoop, &te);
+                if (retval != AE_NOMORE)
+                {
+                    aeTimeEvent tmp = te;
+                    aeAddMillisecondsToNow(retval, &tmp.when_sec, &tmp.when_ms);
+                    vecAddTimeEvent.push_back(tmp);
+                }
             }
-            eventLoop->timeMinHead->pop();   //已标记删除的超时事件从堆中弹出
+            processed += mit->second.size();
+            vecDelTimeMs.push_back(mit->first);
             continue;
         }
-        //已到期的事件，调用回调函数处理
-        if(te.when_sec < now_sec || (te.when_sec == now_sec && te.when_ms <= now_ms))
-        {
-            int retval = te.timeProc(eventLoop, te.id, te.clientData);
-            ++processed;
-            eventLoop->timeMinHead->pop();
-
-            if (retval != AE_NOMORE)
-            {
-                aeAddMillisecondsToNow(retval, &te.when_sec, &te.when_ms);
-                eventLoop->timeMinHead->push(te);
-            }
-            continue;
-        }
-        break;   //未到期的事件，直接退出循环(因为后面的都是未到期的)
+        break;
+    }
+    for(std::vector<long>::const_iterator vit = vecDelTimeMs.begin(); 
+        vit != vecDelTimeMs.end(); ++vit)
+    {
+        eventLoop->timeEventMap->erase(*vit);
+    }
+    for(std::vector<aeTimeEvent>::const_iterator vit = vecAddTimeEvent.begin(); 
+        vit != vecAddTimeEvent.end(); ++vit)
+    {
+        long lTime = vit->when_sec * 1000 + vit->when_ms;
+        (*eventLoop->timeEventMap)[lTime].insert(*vit);
     }
     return processed;
 }

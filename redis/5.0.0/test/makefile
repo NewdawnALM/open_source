@@ -12,10 +12,14 @@ LIB_SRC_DIR = ../install/src
 # LIBS = -levent
 
 TARGET = $(patsubst %.cpp, %, $(wildcard *.cpp))
-TARGET += time_event_2
+TARGET += time_event_2 time_event_3
 
 all: $(TARGET)
 	@echo $(TARGET)
+
+time_event_3: time_event.cpp $(LIB_SRC_DIR)/ae3.cpp
+	$(CC) $(OPT) -DUSE_AE3 -o $@ $^ $(INCLUDES) $(LIB_DIR) $(LIBS)
+	@echo ok
 
 time_event_2: time_event.cpp $(LIB_SRC_DIR)/ae2.cpp
 	$(CC) $(OPT) -DUSE_AE2 -o $@ $^ $(INCLUDES) $(LIB_DIR) $(LIBS)

@@ -1,7 +1,11 @@
-#ifdef  USE_AE2
-    #include "ae2.h"
+#ifdef  USE_AE3
+    #include "ae3.h"
 #else
-    #include "ae.h"
+    #ifdef  USE_AE2
+        #include "ae2.h"
+    #else
+        #include "ae.h"
+    #endif
 #endif
 
 #include <stdio.h>
@@ -16,6 +20,7 @@
 #include <algorithm>
 #include <vector>
 #include <queue>
+#include <set>
 using namespace std;
 #include "comdef.h"
 #include "timeval.h"
@@ -28,6 +33,35 @@ int g_iTimerNum = 100000;
 }
 
 
+int evTimeProc_3(struct aeEventLoop *eventLoop, const aeTimeEvent *te)
+{
+    // Log("evTimeProc begin, id: %lld", id);
+
+    if(te->clientData != NULL)
+    {
+        CTimeVal *pTimeVal = (CTimeVal*)(te->clientData);
+        // Log("timer[%lld] cost time: %lld ms", te->id, pTimeVal->CostTime());
+        delete pTimeVal;
+    }
+    // if(false && rand() & 1)
+    if(rand() & 1)
+    {
+        static set<int> setDelId;
+        setDelId.insert(te->id);
+
+        int iDelId = rand() % g_iTimerNum;
+        if(setDelId.find(iDelId) == setDelId.end())
+        {
+            #ifdef  USE_AE3
+                aeDeleteTimeEvent(eventLoop, te);
+            #endif
+            setDelId.insert(iDelId);
+            // Log("del id: %d", iDelId);
+        }
+    }
+    return AE_NOMORE;
+}
+
 int evTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData)
 {
     // Log("evTimeProc begin, id: %lld", id);
@@ -37,6 +71,22 @@ int evTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData)
         CTimeVal *pTimeVal = (CTimeVal*)clientData;
         // Log("timer[%lld] cost time: %lld ms", id, pTimeVal->CostTime());
         delete pTimeVal;
+    }
+    // if(false && rand() & 1)
+    if(rand() & 1)
+    {
+        static set<int> setDelId;
+        setDelId.insert(id);
+
+        int iDelId = rand() % g_iTimerNum;
+        if(setDelId.find(iDelId) == setDelId.end())
+        {
+            #ifndef USE_AE3
+                aeDeleteTimeEvent(eventLoop, iDelId);
+            #endif
+            setDelId.insert(iDelId);
+            // Log("del id: %d", iDelId);
+        }
     }
     return AE_NOMORE;
 }
@@ -48,13 +98,19 @@ void beforeSleepProc(struct aeEventLoop *eventLoop)
 
     if(eventLoop->maxfd < 0)
     {
-        #ifdef  USE_AE2
-            if(eventLoop->timeMinHead->size() == 0)
+        #ifdef  USE_AE3
+            if(eventLoop->timeEventMap->size() == 0)
         #else
-            if(eventLoop->timeEventHead == NULL)
+            #ifdef  USE_AE2
+                if(eventLoop->timeMinHead->size() == 0)
+            #else
+                if(eventLoop->timeEventHead == NULL)
+            #endif
         #endif
         {
-            Log("here stop");
+            #ifndef  USE_AE3
+                Log("here stop");
+            #endif
             aeStop(eventLoop);
         }
     }
@@ -81,8 +137,11 @@ int main(int argc, char const *argv[])
     {
         int iTime = rand() % 10 + 1;    //1~10 ms
         // Log("[%d] rand time: %d ms", i - 1, iTime);
+    #ifdef  USE_AE3
+        long long lTimerId = aeCreateTimeEvent(eventLoop, iTime, evTimeProc_3, (void*)(new CTimeVal), NULL);
+    #else
         long long lTimerId = aeCreateTimeEvent(eventLoop, iTime, evTimeProc, (void*)(new CTimeVal), NULL);
-        // Log("lTimerId: %lld", lTimerId);
+    #endif
     }
 
     CTimeVal oTimer;
