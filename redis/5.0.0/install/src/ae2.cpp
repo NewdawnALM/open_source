@@ -213,8 +213,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
     delete eventLoop->timeMinHead;
     eventLoop->timeMinHead = new std::priority_queue<aeTimeEvent>();
-    delete eventLoop->setDelTimeId;
-    eventLoop->setDelTimeId = new std::set<long long>();
+    eventLoop->setDelTimeId->clear();
     eventLoop->events = (aeFileEvent *)realloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
     eventLoop->fired = (aeFiredEvent *)realloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
     eventLoop->setsize = setsize;
@@ -317,9 +316,6 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
 {
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent te;
-
-    // te = (aeTimeEvent *)malloc(sizeof(*te));
-    // if (te == NULL) return AE_ERR;
     te.id = id;
     //设置milliseconds毫秒后的时间点到te中
     aeAddMillisecondsToNow(milliseconds, &te.when_sec, &te.when_ms);
@@ -352,18 +348,6 @@ static const aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     if(eventLoop->timeMinHead->empty())
         return NULL;
     return &(eventLoop->timeMinHead->top());
-
-    // aeTimeEvent *te = eventLoop->timeEventHead;
-    // aeTimeEvent *nearest = NULL;
-
-    // while(te) {
-    //     if (!nearest || te->when_sec < nearest->when_sec ||
-    //             (te->when_sec == nearest->when_sec &&
-    //              te->when_ms < nearest->when_ms))
-    //         nearest = te;
-    //     te = te->next;
-    // }
-    // return nearest;
 }
 
 /* Process time events */
