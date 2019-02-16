@@ -56,14 +56,14 @@ Curl_llist_init(struct curl_llist *l, curl_llist_dtor dtor)
 void
 Curl_llist_insert_next(struct curl_llist *list, struct curl_llist_element *e,
                        const void *p,
-                       struct curl_llist_element *ne)
+                       struct curl_llist_element *ne)   //把ne元素插入到e的后面，如果e==NULL或者链表长度为0则插入到链表的头部
 {
   ne->ptr = (void *) p;
   if(list->size == 0) {
     list->head = ne;
     list->head->prev = NULL;
     list->head->next = NULL;
-    list->tail = ne;
+    list->tail = ne;    //此时tail和head指向同一个节点，所以不需要再设置tail->prev和tail->next了
   }
   else {
     /* if 'e' is NULL here, we insert the new element first in the list */
@@ -90,7 +90,7 @@ Curl_llist_insert_next(struct curl_llist *list, struct curl_llist_element *e,
  * @unittest: 1300
  */
 void
-Curl_llist_remove(struct curl_llist *list, struct curl_llist_element *e,
+Curl_llist_remove(struct curl_llist *list, struct curl_llist_element *e,  //从链表中删除节点e
                   void *user)
 {
   void *ptr;
@@ -150,7 +150,7 @@ Curl_llist_count(struct curl_llist *list)
  */
 void Curl_llist_move(struct curl_llist *list, struct curl_llist_element *e,
                      struct curl_llist *to_list,
-                     struct curl_llist_element *to_e)
+                     struct curl_llist_element *to_e)   //从list中删除e并把它插入到to_list中to_e的后面
 {
   /* Remove element from list */
   if(e == NULL || list->size == 0)

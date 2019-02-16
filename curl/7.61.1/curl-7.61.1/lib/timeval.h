@@ -27,15 +27,15 @@
 #if SIZEOF_TIME_T < 8
 typedef int timediff_t;
 #else
-typedef curl_off_t timediff_t;
+typedef curl_off_t timediff_t;	//64位长整型
 #endif
 
 struct curltime {
   time_t tv_sec; /* seconds */
-  int tv_usec;   /* microseconds */
+  int tv_usec;   /* microseconds */	  //微秒，百万分之一秒(10^-6)
 };
 
-struct curltime Curl_now(void);
+struct curltime Curl_now(void);    //获取当前时间
 
 /*
  * Make sure that the first argument (t1) is the more recent time and t2 is
@@ -43,7 +43,7 @@ struct curltime Curl_now(void);
  *
  * Returns: the time difference in number of milliseconds.
  */
-timediff_t Curl_timediff(struct curltime t1, struct curltime t2);
+timediff_t Curl_timediff(struct curltime t1, struct curltime t2);	//t1-t2
 
 /*
  * Make sure that the first argument (t1) is the more recent time and t2 is
@@ -51,6 +51,6 @@ timediff_t Curl_timediff(struct curltime t1, struct curltime t2);
  *
  * Returns: the time difference in number of microseconds.
  */
-timediff_t Curl_timediff_us(struct curltime newer, struct curltime older);
+timediff_t Curl_timediff_us(struct curltime newer, struct curltime older);	//newer-older
 
 #endif /* HEADER_CURL_TIMEVAL_H */
