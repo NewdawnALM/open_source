@@ -49,3 +49,5 @@ int main(int argc, char const *argv[])
 	cout << sizeof(char[0]) << "\n";
 	return 0;
 }
+
+// test svn commit $file1 $file2...
