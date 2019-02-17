@@ -197,7 +197,9 @@ int evHttpTimerCb(struct aeEventLoop *eventLoop, long long id, void *clientData)
     Log("evHttpTimerCb begin, eventLoop: %p, id: %d, clientData: %p", eventLoop, id, clientData);
 
     CMultiInfo *pMultiInfo = (CMultiInfo*)clientData;
+    Log("curl_multi_socket_action begin");
     CURLMcode mcode = curl_multi_socket_action(pMultiInfo->m_curlm, CURL_SOCKET_TIMEOUT, 0, &pMultiInfo->m_iRunning);
+    Log("curl_multi_socket_action finish");
     assert(mcode == CURLM_OK);
     return AE_NOMORE;
 }
@@ -240,6 +242,7 @@ int multiTimerCallback(CURLM *multi, long timeout_ms, void *userp)
         // // aeDeleteFileEvent(pMultiInfo->m_evpBase, iTimerfd, AE_READABLE);
         // // ::close(iTimerfd);   //这里如果不close的话会导致branch 1创建的fd泄露
     }
+    return 0;
 }
 
 int multiSocketCallback(CURL *easy, curl_socket_t s, int what, void *userp, void *socketp)
@@ -340,6 +343,7 @@ int addHttpCondi(CURLM *curlm, const string &strUrl, const string &strHost = g_s
     // pConnInfo->m_curl = curl;
     pConnInfo->m_strUrl = strUrl;
 
+    Log("curl_multi_add_handle[%ld] begin", i64TimeOutMs);
     // Log("timer_cb: %p", (Curl_multi*)curlm->timer_cb);
     CURLMcode mcode = curl_multi_add_handle(curlm, curl);
     // Log("timer_cb: %p", (Curl_multi*)curlm->timer_cb);
@@ -557,8 +561,8 @@ loop:
     
     Log("m_evpBase init finish");
 
-    assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "500", g_strHost, 1000) == 0);
-    assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300", g_strHost, 600) == 0);
+    assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "500", g_strHost, 500) == 0);
+    // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300", g_strHost, 600) == 0);
     // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "300") == 0);
     // assert(addHttpCondi(oMultiInfo.m_curlm, g_strUrlPrefix + "200") == 0);
     // assert(addTcpCondi(oMultiInfo.m_evpBase, "10.123.2.27", 9006) == 0);

@@ -91,6 +91,36 @@ struct Curl_tree *Curl_splay(struct curltime i,
   return t;
 }
 
+static void __ViewSplayTree(const struct Curl_tree *root)
+{
+  if(root == NULL)  return;
+
+  __ViewSplayTree(root->smaller);   //递归输出左子树
+
+  int iSameNodes = 1;
+  const struct Curl_tree *p = root->samep;
+  while(p && p != root) {  ++iSameNodes; p = p->samep;  }
+  p = root->samen;
+  while(p && p != root) {  ++iSameNodes; p = p->samen;  }
+  printf("%ld s-%d micros[*%d], ", root->key.tv_sec, root->key.tv_usec, iSameNodes);
+
+  __ViewSplayTree(root->larger);   //递归输出右子树
+}
+
+void ViewSplayTree(const struct Curl_tree *root)
+{
+  printf("\n%s|%d|ViewSplayTree begin\n", __FILE__, __LINE__);
+  __ViewSplayTree(root);
+  printf("\n%s|%d|ViewSplayTree finish\n\n", __FILE__, __LINE__);
+}
+
+void ViewSplayTree1(const struct Curl_tree *root, char chMsg[], int iMsg)
+{
+  printf("\n%s|%d|%s|%d ViewSplayTree begin\n", __FILE__, __LINE__, chMsg, iMsg);
+  __ViewSplayTree(root);
+  printf("\n%s|%d|%s|%d ViewSplayTree finish\n", __FILE__, __LINE__, chMsg, iMsg);
+}
+
 /* Insert key i into the tree t.  Return a pointer to the resulting tree or
  * NULL if something went wrong.
  *

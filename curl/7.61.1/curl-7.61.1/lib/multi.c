@@ -492,7 +492,7 @@ CURLMcode curl_multi_add_handle(struct Curl_multi *multi,
   data->state.conn_cache->closure_handle->set.server_response_timeout =
     data->set.server_response_timeout;
 
-  update_timer(multi);
+  update_timer(multi);    //让应用程序开始计时器或者停止计时器(这里调用了两次multi_timer_cb，第二次是curl_multi_socket_action中调用的)
   return CURLM_OK;
 }
 
@@ -1380,7 +1380,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       timeout_ms = Curl_timeleft(data, &now,
                                  (data->mstate <= CURLM_STATE_WAITDO)?
                                  TRUE:FALSE);
-
+      printf("%s|%d|timeout_ms: %ld\n", __FILE__, __LINE__, timeout_ms);
       if(timeout_ms < 0) {
         /* Handle timed out */
         if(data->mstate == CURLM_STATE_WAITRESOLVE)
@@ -1417,7 +1417,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         goto statemachine_end;
       }
     }
-
+    printf("%s|%d|data->mstate: %d\n", __FILE__, __LINE__, data->mstate);
     switch(data->mstate) {
     case CURLM_STATE_INIT:
       /* init this transfer. */
@@ -1439,8 +1439,10 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
     case CURLM_STATE_CONNECT:
       /* Connect. We want to get a connection identifier filled in. */
       Curl_pgrsTime(data, TIMER_STARTSINGLE);
+      printf("-------------------------------%d-----------------------------------\n", __LINE__);
       result = Curl_connect(data, &data->easy_conn,
                             &async, &protocol_connect);
+      printf("-------------------------------%d-----------------------------------\n", __LINE__);
       if(CURLE_NO_CONNECTION_AVAILABLE == result) {
         /* There was no connection available. We will go to the pending
            state and wait for an available connection. */
@@ -1865,7 +1867,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
                                    data->set.max_recv_speed,
                                    data->progress.dl_limit_start,
                                    now);
-
+        printf("%s|%d|send_timeout_ms: %ld, recv_timeout_ms: %ld\n", __FILE__, __LINE__, send_timeout_ms, recv_timeout_ms);
         if(!send_timeout_ms && !recv_timeout_ms) {
           multistate(data, CURLM_STATE_PERFORM);
           Curl_ratelimit(data, now);
@@ -1900,7 +1902,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
                                                  data->set.max_recv_speed,
                                                  data->progress.dl_limit_start,
                                                  now);
-
+      printf("%s|%d|send_timeout_ms: %ld, recv_timeout_ms: %ld\n", __FILE__, __LINE__, send_timeout_ms, recv_timeout_ms);
       if(send_timeout_ms || recv_timeout_ms) {
         Curl_ratelimit(data, now);
         multistate(data, CURLM_STATE_TOOFAST);
@@ -2494,6 +2496,7 @@ void Curl_multi_closed(struct connectdata *conn, curl_socket_t s)
  * The splay tree only has each sessionhandle as a single node and the nearest
  * timeout is used to sort it on.
  */
+//更新easy_curl中的到期时间(把已过期的时间删除，同时选取最小的到期时间设置到state.expiretime中)，再把这个到期时间放到multi的伸展树中维护起来
 static CURLMcode add_next_timeout(struct curltime now,
                                   struct Curl_multi *multi,
                                   struct Curl_easy *d)
@@ -2506,11 +2509,11 @@ static CURLMcode add_next_timeout(struct curltime now,
   /* move over the timeout list for this specific handle and remove all
      timeouts that are now passed tense and store the next pending
      timeout in *tv */
-  for(e = list->head; e;) {
+  for(e = list->head; e;) {   //删除所有过期(过去)的时间
     struct curl_llist_element *n = e->next;
     timediff_t diff;
     node = (struct time_node *)e->ptr;
-    diff = Curl_timediff(node->time, now);
+    diff = Curl_timediff(node->time, now);  //左-右
     if(diff <= 0)
       /* remove outdated entry */
       Curl_llist_remove(list, e, NULL);
@@ -2525,6 +2528,7 @@ static CURLMcode add_next_timeout(struct curltime now,
        splay tree */
     tv->tv_sec = 0;
     tv->tv_usec = 0;
+    printf("%s|%d no need Curl_splayinsert\n", __FILE__, __LINE__);
   }
   else {
     /* copy the first entry to 'tv' */
@@ -2534,6 +2538,7 @@ static CURLMcode add_next_timeout(struct curltime now,
        case we need to recompute future timers. */
     multi->timetree = Curl_splayinsert(*tv, multi->timetree,
                                        &d->state.timenode);
+    printf("%s|%d Curl_splayinsert finish\n", __FILE__, __LINE__);
   }
   return CURLM_OK;
 }
@@ -2547,7 +2552,8 @@ static CURLMcode multi_socket(struct Curl_multi *multi,
   CURLMcode result = CURLM_OK;
   struct Curl_easy *data = NULL;
   struct Curl_tree *t;
-  struct curltime now = Curl_now();
+  struct curltime now = Curl_now();   // 不一定是时间戳，有可能是系统运行时间(从开机到当前的时间差)
+  printf("%s|%d|now: %ld s-%d micro\n", __FILE__, __LINE__, now.tv_sec, now.tv_usec);
 
   if(checkall) {
     /* *perform() deals with running_handles on its own */
@@ -2638,6 +2644,7 @@ static CURLMcode multi_socket(struct Curl_multi *multi,
     memset(&multi->timer_lastcall, 0, sizeof(multi->timer_lastcall));
   }
 
+  ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
   /*
    * The loop following here will go on as long as there are expire-times left
    * to process in the splay and 'data' will be re-assigned for every expired
@@ -2649,7 +2656,7 @@ static CURLMcode multi_socket(struct Curl_multi *multi,
       SIGPIPE_VARIABLE(pipe_st);
 
       sigpipe_ignore(data, &pipe_st);
-      result = multi_runsingle(multi, now, data);
+      result = multi_runsingle(multi, now, data);   //夹在sigpipe信号的忽略和恢复之间，可能是在这里进行send/recv操作？
       sigpipe_restore(&pipe_st);
 
       if(CURLM_OK >= result) {
@@ -2663,15 +2670,19 @@ static CURLMcode multi_socket(struct Curl_multi *multi,
 
     /* Check if there's one (more) expired timer to deal with! This function
        extracts a matching node if there is one */
-
-    multi->timetree = Curl_splaygetbest(now, multi->timetree, &t);
+    ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
+    multi->timetree = Curl_splaygetbest(now, multi->timetree, &t);  //获取最小/最近的到期时间(<=当前时间)(该时间会关联着一个easy_curl)
+    ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
     if(t) {
       data = t->payload; /* assign this for next loop */
+      //更新curl中的到期时间(把已过期的时间删除，同时选取最小的到期时间设置到state.expiretime中)，再把该到期时间放到multi的splay中维护起来
       (void)add_next_timeout(now, multi, t->payload);
+      ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
     }
 
   } while(t);
 
+  ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
   *running_handles = multi->num_alive;
   return result;
 }
@@ -2768,9 +2779,16 @@ CURLMcode curl_multi_socket_action(struct Curl_multi *multi, curl_socket_t s,
   CURLMcode result;
   if(multi->in_callback)
     return CURLM_RECURSIVE_API_CALL;
+  printf("%s|%d|multi_socket begin\n", __FILE__, __LINE__);
   result = multi_socket(multi, FALSE, s, ev_bitmask, running_handles);
+  printf("%s|%d|multi_socket finish\n", __FILE__, __LINE__);
+
   if(CURLM_OK >= result)
+  {
+    printf("%s|%d|update_timer begin, result: %d, result %s CURLM_OK\n", __FILE__, __LINE__, result, result == CURLM_OK ? "==" : "!=");
     update_timer(multi);
+    printf("%s|%d|update_timer finish\n", __FILE__, __LINE__);
+  }
   return result;
 }
 
@@ -2785,7 +2803,7 @@ CURLMcode curl_multi_socket_all(struct Curl_multi *multi, int *running_handles)
     update_timer(multi);
   return result;
 }
-
+//获取multi伸展树中最小/最近的到期时间的间隔(由timeout_ms返回)，若该时间在当前时间之前则返回0，没有任何时间返回-1，差值不到1ms的返回1ms
 static CURLMcode multi_timeout(struct Curl_multi *multi,
                                long *timeout_ms)
 {
@@ -2824,7 +2842,7 @@ static CURLMcode multi_timeout(struct Curl_multi *multi,
 
   return CURLM_OK;
 }
-
+//获取multi伸展树中最小/最近的到期时间的间隔(由timeout_ms返回)，若该时间在当前时间之前则返回0，没有任何时间返回-1，差值不到1ms的返回1ms
 CURLMcode curl_multi_timeout(struct Curl_multi *multi,
                              long *timeout_ms)
 {
@@ -2842,22 +2860,22 @@ CURLMcode curl_multi_timeout(struct Curl_multi *multi,
  * Tell the application it should update its timers, if it subscribes to the
  * update timer callback.
  */
-static int update_timer(struct Curl_multi *multi)
+static int update_timer(struct Curl_multi *multi)   //告诉应用程序开始计时器或者停止计时器
 {
   long timeout_ms;
 
   if(!multi->timer_cb)
     return 0;
-  if(multi_timeout(multi, &timeout_ms)) {
+  if(multi_timeout(multi, &timeout_ms)) {  //获取multi伸展树中最小/最近的到期时间的间隔
     return -1;
   }
-  if(timeout_ms < 0) {
+  if(timeout_ms < 0) {  //伸展树中没有任何到期时间
     static const struct curltime none = {0, 0};
-    if(Curl_splaycomparekeys(none, multi->timer_lastcall)) {
+    if(Curl_splaycomparekeys(none, multi->timer_lastcall)) {  //timer_lastcall不为0，证明有被调用过
       multi->timer_lastcall = none;
       /* there's no timeout now but there was one previously, tell the app to
          disable it */
-      return multi->timer_cb(multi, -1, multi->timer_userp);
+      return multi->timer_cb(multi, -1, multi->timer_userp);  //告诉应用程序停止计时器
     }
     return 0;
   }
@@ -2866,10 +2884,10 @@ static int update_timer(struct Curl_multi *multi)
    * timeout we got the (relative) time-out time for. We can thus easily check
    * if this is the same (fixed) time as we got in a previous call and then
    * avoid calling the callback again. */
-  if(Curl_splaycomparekeys(multi->timetree->key, multi->timer_lastcall) == 0)
+  if(Curl_splaycomparekeys(multi->timetree->key, multi->timer_lastcall) == 0)   //上次已调用过，直接返回
     return 0;
 
-  multi->timer_lastcall = multi->timetree->key;
+  multi->timer_lastcall = multi->timetree->key;  //为timer_lastcall作标记(multi_timeout返回的timeout_ms差值就是使用splay顶端的值来计算的)
 
   return multi->timer_cb(multi, timeout_ms, multi->timer_userp);
 }
@@ -2880,7 +2898,7 @@ static int update_timer(struct Curl_multi *multi)
  * Remove a given timestamp from the list of timeouts.
  */
 static void
-multi_deltimeout(struct Curl_easy *data, expire_id eid)
+multi_deltimeout(struct Curl_easy *data, expire_id eid)   //按ID来删除easy_curl超时时间列表中的元素
 {
   struct curl_llist_element *e;
   struct curl_llist *timeoutlist = &data->state.timeoutlist;
@@ -2900,7 +2918,7 @@ multi_deltimeout(struct Curl_easy *data, expire_id eid)
  * Add a timestamp to the list of timeouts. Keep the list sorted so that head
  * of list is always the timeout nearest in time.
  *
- */
+ */  //把时间stamp加入到easy_curl的timeoutlist中(timeoutlist保持升序)，同时放到state.expires对应的位置去
 static CURLMcode
 multi_addtimeout(struct Curl_easy *data,
                  struct curltime *stamp,
@@ -2948,10 +2966,11 @@ multi_addtimeout(struct Curl_easy *data,
  *
  * Expire replaces a former timeout using the same id if already set.
  */
+//设置现在开始milli毫秒后的到期时间到curl中(更新timeoutlist和state.expires)，如果这个时间在curl的最近到期时间之前，还会更新伸展树和state.expiretime、state.timenode
 void Curl_expire(struct Curl_easy *data, time_t milli, expire_id id)
 {
   struct Curl_multi *multi = data->multi;
-  struct curltime *nowp = &data->state.expiretime;
+  struct curltime *nowp = &data->state.expiretime;  //获取curl最近的到期时间
   struct curltime set;
 
   /* this is only interesting while there is still an associated multi struct
@@ -2962,6 +2981,7 @@ void Curl_expire(struct Curl_easy *data, time_t milli, expire_id id)
   DEBUGASSERT(id < EXPIRE_LAST);
 
   set = Curl_now();
+  printf("%s|%d|now: %ld s-%d micro, milli: %ld ms\n", __FILE__, __LINE__, set.tv_sec, set.tv_usec, milli);
   set.tv_sec += milli/1000;
   set.tv_usec += (unsigned int)(milli%1000)*1000;
 
@@ -2969,27 +2989,28 @@ void Curl_expire(struct Curl_easy *data, time_t milli, expire_id id)
     set.tv_sec++;
     set.tv_usec -= 1000000;
   }
+  printf("%s|%d|set: %ld s-%d micro\n", __FILE__, __LINE__, set.tv_sec, set.tv_usec);
 
   /* Remove any timer with the same id just in case. */
-  multi_deltimeout(data, id);
+  multi_deltimeout(data, id);   //按ID来删除curl超时时间列表中的元素
 
   /* Add it to the timer list.  It must stay in the list until it has expired
      in case we need to recompute the minimum timer later. */
-  multi_addtimeout(data, &set, id);
+  multi_addtimeout(data, &set, id);   //把时间set加入到curl的timeoutlist中(timeoutlist保持升序)，同时放到state.expires对应的位置去
 
   if(nowp->tv_sec || nowp->tv_usec) {
     /* This means that the struct is added as a node in the splay tree.
        Compare if the new time is earlier, and only remove-old/add-new if it
        is. */
-    timediff_t diff = Curl_timediff(set, *nowp);
+    timediff_t diff = Curl_timediff(set, *nowp);  //比较新的到期时间和原来的最近到期时间
     int rc;
 
-    if(diff > 0) {
+    if(diff > 0) {    //新的到期时间在原来的最近到期时间之后(这里是不是应该加个'='？因为Curl_timediff是有精度损失的)
       /* The current splay tree entry is sooner than this new expiry time.
          We don't need to update our splay tree entry. */
       return;
     }
-
+    //新的到期时间比原来的最近到期时间更早，需要更新到multi的伸展树中/替换原来的最近到期时间
     /* Since this is an updated time, we must remove the previous entry from
        the splay tree first and then re-add the new value */
     rc = Curl_splayremovebyaddr(multi->timetree,
@@ -3003,8 +3024,10 @@ void Curl_expire(struct Curl_easy *data, time_t milli, expire_id id)
      value since it is our local minimum. */
   *nowp = set;
   data->state.timenode.payload = data;
+  ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
   multi->timetree = Curl_splayinsert(*nowp, multi->timetree,
-                                     &data->state.timenode);
+                                     &data->state.timenode);  //把新的到期时间加入到multi的伸展树中，同时更新curl的state.timenode值
+  ViewSplayTree1(multi->timetree, __FILE__, __LINE__);
 }
 
 /*

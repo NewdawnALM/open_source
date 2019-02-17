@@ -33,6 +33,9 @@ struct Curl_tree {
   void *payload;             /* data the splay code doesn't care about */
 };
 
+void ViewSplayTree(const struct Curl_tree *root);
+void ViewSplayTree1(const struct Curl_tree *root, char chMsg[], int iMsg);
+
 struct Curl_tree *Curl_splay(struct curltime i,
                              struct Curl_tree *t);
 

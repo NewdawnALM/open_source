@@ -1090,8 +1090,8 @@ struct Progress {
   time_t t_redirect;
 
   struct curltime start;
-  struct curltime t_startsingle;
-  struct curltime t_startop;
+  struct curltime t_startsingle;  //开始连接的时刻？
+  struct curltime t_startop;    //开始的时刻？
   struct curltime t_acceptdata;
 
   bool is_t_startransfer_set;
@@ -1272,8 +1272,8 @@ struct UrlState {
   /* void instead of ENGINE to avoid bleeding OpenSSL into this header */
   void *engine;
 #endif /* USE_OPENSSL */
-  struct curltime expiretime; /* set this with Curl_expire() only */    //curl的到期/超时时间？
-  struct Curl_tree timenode; /* for the splay stuff */
+  struct curltime expiretime; /* set this with Curl_expire() only */    //curl最近的到期时间
+  struct Curl_tree timenode; /* for the splay stuff */      //存储最近到期时间的splay节点
   struct curl_llist timeoutlist; /* list of pending timeouts */
   struct time_node expires[EXPIRE_LAST]; /* nodes for each expire type */
 
@@ -1516,8 +1516,8 @@ struct UserDefined {
 
   void *progress_client; /* pointer to pass to the progress callback */
   void *ioctl_client;   /* pointer to pass to the ioctl callback */
-  long timeout;         /* in milliseconds, 0 means no timeout */   //easy curl的超时时间(使用CURLOPT_TIMEOUT_MS设置的值)
-  long connecttimeout;  /* in milliseconds, 0 means no timeout */
+  long timeout;         /* in milliseconds, 0 means no timeout */   //easy_curl的超时时间(使用CURLOPT_TIMEOUT_MS设置的值)
+  long connecttimeout;  /* in milliseconds, 0 means no timeout */   //easy_curl的连接超时时间(使用CURLOPT_CONNECTTIMEOUT设置的值)
   long accepttimeout;   /* in milliseconds, 0 means no timeout */
   long happy_eyeballs_timeout; /* in milliseconds, 0 is a valid value */    // 用于调用multi_timer_cb的默认200ms的参数
   long server_response_timeout; /* in milliseconds, 0 means no timeout */

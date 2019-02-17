@@ -191,9 +191,9 @@ timediff_t Curl_timeleft(struct Curl_easy *data,
 
   /* if a timeout is set, use the most restrictive one */
 
-  if(data->set.timeout > 0)
+  if(data->set.timeout > 0)   //curl的超时时间(使用CURLOPT_TIMEOUT_MS设置的值)
     timeout_set |= 1;
-  if(duringconnect && (data->set.connecttimeout > 0))
+  if(duringconnect && (data->set.connecttimeout > 0))   //curl的连接超时时间(使用CURLOPT_CONNECTTIMEOUT设置的值)
     timeout_set |= 2;
 
   switch(timeout_set) {

@@ -161,7 +161,7 @@ struct curltime Curl_now(void)
  *
  * @unittest: 1323
  */
-timediff_t Curl_timediff(struct curltime newer, struct curltime older)
+timediff_t Curl_timediff(struct curltime newer, struct curltime older)  //返回毫秒级时间差异(会有精度损失，结果可能比实际差值偏小)
 {
   timediff_t diff = newer.tv_sec-older.tv_sec;
   if(diff >= (TIME_MAX/1000))
@@ -175,7 +175,7 @@ timediff_t Curl_timediff(struct curltime newer, struct curltime older)
  * Returns: time difference in number of microseconds. For too large diffs it
  * returns max value.
  */
-timediff_t Curl_timediff_us(struct curltime newer, struct curltime older)
+timediff_t Curl_timediff_us(struct curltime newer, struct curltime older)  //返回微秒级时间差异
 {
   timediff_t diff = newer.tv_sec-older.tv_sec;
   if(diff >= (TIME_MAX/1000000))
