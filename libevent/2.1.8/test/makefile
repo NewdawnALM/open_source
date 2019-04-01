@@ -1,6 +1,7 @@
 CC = g++
 
-OPT = -g --static -std=c++11
+# OPT = -g --static -std=c++11
+OPT = -g -std=c++11
 
 INCLUDES = -I./common -I../install/include
 

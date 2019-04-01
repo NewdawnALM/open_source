@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <string.h>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@ using namespace std;
 #define Log(format, argv...) \
     printf((string("%s|%d|") + string(format) + "\n").c_str(), __FILE__, __LINE__, ##argv);
 
+event *g_evStdin = NULL;
 
 evutil_socket_t getTcpClient(const char *chServerIp, int iPort)
 {
@@ -81,6 +83,14 @@ void cbStdinRead(evutil_socket_t fdStdin, short sEvent, void *arg)
 	}
 	evutil_socket_t sockClient = *((evutil_socket_t*)arg);
 	Log("sockClient: %d", sockClient);
+
+	if(strncmp(chBuf, "bye", 3) == 0)
+	{
+		Log("closing socket...");
+		evutil_closesocket(sockClient);
+		event_free(g_evStdin);
+		return;
+	}
 	
 	int iWSize = ::write(sockClient, chBuf, iSize);
 	if(iWSize <= 0)
@@ -140,6 +150,7 @@ int main(int argc, char const *argv[])
 
 
 	event *evStdinRead = event_new(base, STDIN_FILENO, EV_READ | EV_PERSIST, cbStdinRead, (void*)&sockClient);
+	g_evStdin = evStdinRead;
 	event_add(evStdinRead, NULL);
 
 	event_base_dispatch(base);
