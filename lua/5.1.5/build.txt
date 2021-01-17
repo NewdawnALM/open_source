@@ -1,0 +1,14 @@
+参考INSTALL文件所示的编译方式，
+ubuntu 源码安装：
+更改根目录Makefile文件里的INSTALL_TOP，把原来的/usr/local改为自己需要安装的路径；
+然后在根目录下 make linux （linux代表操作系统，只输入make会列出所有支持的系统），可能会出现如下错误：
+luaconf.h:276:10: fatal error: readline/readline.h: 没有那个文件或目录
+ #include <readline/readline.h>
+此时需要安装对应的库：sudo apt install libreadline-dev
+再次 make linux 时会出现 /usr/bin/ld: 找不到 -lncurses 这个错误，
+原因是 ncurses 动态库所在目录 /lib/x86_64-linux-gnu 缺少了对应的的 .so 
+(只有libncurses.so.5.9和对应的libncurses.so.5软链接，缺少了指向libncurses.so.5的libncurses.so软链接)
+所以用命令行 sudo ln -s /lib/x86_64-linux-gnu/libncurses.so.5 /lib/x86_64-linux-gnu/libncurses.so 
+创建相应的软链接即可，
+然后再次 make linux 即可成功编译，
+最后 make install 把编译好的文件安装到上述更改的路径里。
